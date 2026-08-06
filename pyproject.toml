@@ -1,0 +1,44 @@
+[project]
+name = "moulcodec"
+version = "0.1.0"
+description = "Darija speech tokenization with NeuCodec — audit + dataset pipeline"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "neucodec>=0.0.6",
+    "transformers>=4.44.2,<4.47",   # neucodec is built against 4.x; v5 is a breaking major
+    "datasets[audio]>=4.0.0",     # [audio] pulls torchcodec; needs system ffmpeg
+    "torch>=2.8.0",
+    "torchaudio>=2.8.0",
+    "soundfile>=0.12",
+    "numpy>=2.0",
+    "pandas>=2.0",
+    "pyarrow>=21.0",
+    "pyyaml>=6.0",
+    "huggingface-hub>=0.25",
+]
+
+[project.optional-dependencies]
+metrics = [
+    "speechbrain>=1.0",   # ECAPA-TDNN speaker similarity
+    "jiwer>=3.0",         # WER/CER for delta-WER
+    "pesq>=0.0.4",        # optional per HLD §2.3
+    "pystoi>=0.4",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0", "ruff>=0.6", "ipykernel>=6.29"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+# Add this block to force the older torchao version that torchtune expects
+[tool.uv]
+override-dependencies = [
+    "torchao<0.6.0",
+    "transformers>=4.44.2,<4.47",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
