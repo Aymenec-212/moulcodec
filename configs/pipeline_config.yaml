@@ -14,8 +14,7 @@ dataset:
 audio:
   target_sr: 16000
   mono: true
-  pad_multiple: 320
-  max_seconds: 30             # skip/segment longer clips; guards batch OOM
+  hop: 320            # skip/segment longer clips; guards batch OOM
 
 codec:
   model_id: neuphonic/neucodec
