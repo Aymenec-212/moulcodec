@@ -1,0 +1,58 @@
+# MoulCodec unified Phase 1+3 pipeline config (HLD §2)
+seed: 42
+
+dataset:
+  id: atlasia/MoulSot-Full
+  config: 100-gt-2.5          # ~80h transcribed subset, pesq_hyp > 2.5
+  split: train
+  # column names below are unverified until we see the real dataset on the pod
+  audio_column: audio
+  text_column: text
+  id_column: audio_id
+  speaker_column: speaker_id
+
+audio:
+  target_sr: 16000
+  mono: true
+  pad_multiple: 320
+  max_seconds: 30             # skip/segment longer clips; guards batch OOM
+
+codec:
+  model_id: neuphonic/neucodec
+  frame_rate: 50              # tokens per second
+  decode_sr: 24000            # decoder has NO 16k path (HLD §1)
+  metrics_sr: 16000           # resample BOTH sides here before any metric
+
+preprocess:                   # CPU only — num_proc must never touch the GPU
+  num_proc: 4
+  map_batch_size: 64
+  writer_batch_size: 200
+
+encode:                       # GPU, main process, batched=True
+  batch_size: 16
+  bucket_by_length: true      # encode_code needs uniform T within a batch
+
+asr:                          # dominant cost (HLD §2.2)
+  model_id: atlasia/moulsot.v0.3
+  batch_size: 8
+
+speaker:
+  model_id: speechbrain/spkrec-ecapa-voxceleb
+
+pilot:
+  size: 100
+
+validation:
+  # neucodec pads unconditionally: pad = 320 - (T % 320), so frames == T // 320 + 1
+  frame_tolerance: 1          # allows the semantic/acoustic min_len clamp
+  fail_fast: true
+
+paths:
+  cache_dir: .hf_cache
+  token_store: outputs/token_store
+  release_dir: outputs/release
+  audit_dir: audit
+
+hub:
+  dataset_repo: atlasia/MoulSot-Tokens-v1
+  private: true               # flip to public only after the §2.6 checklist passes
