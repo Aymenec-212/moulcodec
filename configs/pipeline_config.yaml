@@ -29,8 +29,10 @@ preprocess:                   # CPU only — num_proc must never touch the GPU
   writer_batch_size: 200
 
 encode:                       # GPU, main process, batched=True
-  batch_size: 16
-  bucket_by_length: true      # encode_code needs uniform T within a batch
+  batch_size: 1               # measured: mixed-length batching perturbs 86% of
+                              # frames (per-utterance feature normalisation over
+                              # padding). Only exact-length groups may batch.
+  bucket_by_length: exact     # not "loose" — quantised padding is NOT safe
 
 asr:                          # dominant cost (HLD §2.2)
   model_id: atlasia/moulsot.v0.3
@@ -43,8 +45,9 @@ pilot:
   size: 100
 
 validation:
-  # neucodec pads unconditionally: pad = 320 - (T % 320), so frames == T // 320 + 1
-  frame_tolerance: 1          # allows the semantic/acoustic min_len clamp
+  # Real formula is exactly n_samples // 320 (semantic branch governs).
+  # ±1 tolerance covers the min_len clamp between acoustic/semantic branches.
+  frame_tolerance: 1          
   fail_fast: true
 
 paths:

@@ -42,3 +42,11 @@ override-dependencies = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "model: marks tests that require loading the NeuCodec model (deselect with '-m \"not model\"')",
+]
+filterwarnings = [
+    "ignore::FutureWarning",
+    "ignore:.*torch.nn.utils.weight_norm is deprecated.*:FutureWarning",
+    "ignore::DeprecationWarning:torch.jit._script",
+]
