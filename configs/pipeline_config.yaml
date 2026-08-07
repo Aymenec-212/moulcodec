@@ -33,6 +33,7 @@ encode:                       # GPU, main process, batched=True
                               # frames (per-utterance feature normalisation over
                               # padding). Only exact-length groups may batch.
   bucket_by_length: exact     # not "loose" — quantised padding is NOT safe
+  shard_rows: 2000            # token store parquet shard size
 
 asr:                          # dominant cost (HLD §2.2)
   model_id: atlasia/moulsot.v0.3
@@ -49,6 +50,16 @@ validation:
   # ±1 tolerance covers the min_len clamp between acoustic/semantic branches.
   frame_tolerance: 1          
   fail_fast: true
+
+audit:
+  sample_size: 3000           # initial nested prefix
+  expand_to: [8000, 20000]    # escalation ladder if the CI straddles a threshold
+  seed: 42                    # changing this invalidates nesting — don't
+  strata_duration_edges: [2.0, 4.0, 6.0, 8.0, 10.0]
+  bootstrap_iters: 2000
+  trigger_delta_wer: 5.0
+  trigger_speaker_sim: 0.80
+  export_wav_dir: outputs/audit_wavs
 
 paths:
   cache_dir: .hf_cache
