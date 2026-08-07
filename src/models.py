@@ -176,3 +176,77 @@ class NeuCodecWrapper:
 
     def decode_one(self, tokens: Sequence[int]) -> torch.Tensor:
         return self.decode_batch([tokens])[0]
+
+
+# HLD §4.1 forbids running t-SNE on the raw 65,536-token vocabulary and requires
+# it on the continuous projection space BEFORE quantisation. NeuCodecWrapper as
+# written only exposes post-FSQ token IDs, so these two methods add the missing
+# access.
+#
+# Both locate the FSQ module by TYPE rather than by attribute name, so they do
+# not break if neucodec renames internals.
+# ============================================================================
+
+
+    def _fsq_module(self):
+        """Find the FSQ quantiser without depending on attribute naming."""
+        from vector_quantize_pytorch import FSQ
+
+        for m in self.model.modules():
+            if isinstance(m, FSQ):
+                return m
+        raise RuntimeError("no FSQ module found in the codec")
+
+    @torch.inference_mode()
+    def encode_latents(self, wav: torch.Tensor) -> torch.Tensor:
+        """Continuous pre-quantisation latents for one clip: [D, F].
+
+        Captured with a forward pre-hook on the FSQ module, so this is exactly
+        the tensor the quantiser sees — no reimplementation of the encode path
+        that could drift from it.
+        """
+        if wav.dim() != 1:
+            raise ValueError(f"expected 1-D waveform, got {tuple(wav.shape)}")
+
+        captured: list[torch.Tensor] = []
+
+        def _pre_hook(_module, inputs):
+            captured.append(inputs[0].detach().float().cpu())
+
+        handle = self._fsq_module().register_forward_pre_hook(_pre_hook)
+        try:
+            self.model.encode_code(wav.to(torch.float32).reshape(1, 1, -1).to(self.device))
+        finally:
+            handle.remove()
+
+        if not captured:
+            raise RuntimeError("FSQ pre-hook captured nothing — encode path changed?")
+
+        z = captured[0]
+        while z.dim() > 2:  # [B, D, F] or [B, F, D] -> drop batch
+            z = z.squeeze(0)
+        return z
+
+    def fsq_levels(self) -> list[int]:
+        """Quantisation levels per FSQ dimension, read from the model itself."""
+        fsq = self._fsq_module()
+        levels = getattr(fsq, "levels", None)
+        if levels is None:
+            levels = getattr(fsq, "_levels", None)
+        if levels is None:
+            raise RuntimeError("FSQ module exposes no `levels`")
+        return [int(x) for x in (levels.tolist() if hasattr(levels, "tolist") else levels)]
+
+    @torch.inference_mode()
+    def tokens_to_codes(self, tokens) -> torch.Tensor:
+        """Decompose token IDs into per-dimension FSQ codes: [F, D].
+
+        Uses the quantiser's own inverse mapping rather than manual base
+        arithmetic, which would silently produce wrong dimensions if the level
+        configuration differs from what you assumed.
+        """
+        idx = torch.as_tensor(list(tokens), dtype=torch.long).reshape(1, -1)
+        codes = self._fsq_module().indices_to_codes(idx)
+        while codes.dim() > 2:
+            codes = codes.squeeze(0)
+        return codes.float().cpu()

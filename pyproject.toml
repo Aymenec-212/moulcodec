@@ -25,6 +25,12 @@ metrics = [
     "pesq>=0.0.4",        # optional per HLD §2.3
     "pystoi>=0.4",
 ]
+app = [
+    "gradio>=4.0",
+]
+notebooks = [
+    "scikit-learn>=1.4",
+]
 
 [dependency-groups]
 dev = ["pytest>=8.0", "ruff>=0.6", "ipykernel>=6.29"]
