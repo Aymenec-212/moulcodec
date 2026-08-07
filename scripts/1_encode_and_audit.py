@@ -258,6 +258,7 @@ def main() -> None:
 
     print("CPU preprocessing ...")
     ds = preprocess(ds, cfg)
+    ds = ds.with_format("numpy")     # row access returns np.ndarray directly
 
     print(f"loading codec on {args.device or 'auto'} ...")
     codec = NeuCodecWrapper(model_id=cfg["codec"]["model_id"], device=args.device)

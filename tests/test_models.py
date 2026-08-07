@@ -172,4 +172,10 @@ def test_equal_length_decode_batch_identical(codec):
     toks = codec.encode_batch(clips)
     solo = torch.stack([codec.decode_one(t) for t in toks])
     batched = torch.stack(codec.decode_batch(toks))
-    assert torch.allclose(solo, batched, atol=1e-4)          
+    assert torch.allclose(solo, batched, atol=1e-4)
+
+@pytest.mark.model
+def test_encode_is_bitwise_repeatable(codec):
+    """Same clip, same device, twice — token IDs must be identical."""
+    wav = synth(1.37)
+    assert torch.equal(codec.encode_one(wav), codec.encode_one(wav))

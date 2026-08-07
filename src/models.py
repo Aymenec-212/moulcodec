@@ -97,6 +97,12 @@ class NeuCodecWrapper:
         for p in self.model.parameters():
             p.requires_grad_(False)
 
+        if self.device.type == "cuda":
+            torch.backends.cuda.matmul.allow_tf32 = False
+            torch.backends.cudnn.allow_tf32 = False
+            torch.backends.cudnn.benchmark = False      # autotuner may pick different algos per run
+            torch.backends.cudnn.deterministic = True    
+
     # ---------------------------------------------------------------- encode
 
     @torch.inference_mode()
