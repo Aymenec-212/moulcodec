@@ -3,13 +3,14 @@ seed: 42
 
 dataset:
   id: atlasia/MoulSot-Full
-  config: 100-gt-2.5          # ~80h transcribed subset, pesq_hyp > 2.5
+  config: 100-gt-2.5
   split: train
-  # column names below are unverified until we see the real dataset on the pod
   audio_column: audio
   text_column: text
-  id_column: audio_id
-  speaker_column: speaker_id
+  id_column: id               # was: audio_id
+  channel_column: channel     # NOT a speaker id — YouTube channel proxy
+  duration_column: duration
+  source_quality_columns: [pesq_hyp, stoi_hyp, si_sdr_hyp]   # curation metrics
 
 audio:
   target_sr: 16000
