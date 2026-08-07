@@ -96,11 +96,11 @@ def encode_all(ds, codec: NeuCodecWrapper, cfg: dict, store: Path, resume: bool)
         if not group:
             continue
 
-        wavs = [torch.from_numpy(as_float32(np.asarray(ds[i]["wav"]))) for i in group]
+        rows_g = [ds[i] for i in group]
+        wavs = [torch.from_numpy(as_float32(np.asarray(r["wav"]))) for r in rows_g]
         tokens = codec.encode_batch(wavs, strict=True)
 
-        for i, tok in zip(group, tokens):
-            row = ds[i]
+        for row, tok in zip(rows_g, tokens):
             buffer.append(
                 {
                     "audio_id": row["id"],
@@ -155,7 +155,7 @@ def run_audit(df: pd.DataFrame, ds, codec: NeuCodecWrapper, cfg: dict, n_sample:
     )
     print(f"audit sample: {len(picks)} clips (nested prefix, seed={a.get('seed', 42)})")
 
-    wav_by_id = {ds[i]["id"]: i for i in range(len(ds))}
+    wav_by_id = {aid: i for i, aid in enumerate(ds["id"])}   # single column only
     speaker = None
     if a.get("speaker_similarity", True):
         from src.metrics import SpeakerSimilarity
