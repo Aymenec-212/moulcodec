@@ -55,6 +55,17 @@ def load_done(path: Path) -> set[str]:
                 continue  # tolerate a torn final line from a killed run
     return done
 
+def extract_text(result) -> str:
+    """qwen_asr returns a LIST of ASRTranscription objects, each with .text."""
+    if isinstance(result, (list, tuple)):
+        parts = [extract_text(r) for r in result]
+        return " ".join(p for p in parts if p).strip()
+    text = getattr(result, "text", None)
+    if text is not None:
+        return str(text).strip()
+    if isinstance(result, dict) and "text" in result:
+        return str(result["text"]).strip()
+    raise TypeError(f"cannot extract text from {type(result).__name__}: {result!r}")
 
 def transcribe_side(model, wav_dir: Path, out_path: Path, language: str, limit) -> int:
     done = load_done(out_path)
@@ -71,10 +82,7 @@ def transcribe_side(model, wav_dir: Path, out_path: Path, language: str, limit) 
         for w in todo:
             try:
                 result = model.transcribe(audio=str(w), language=language)
-                text = getattr(result, "text", None)
-                if text is None:  # API surface only documented via the model card
-                    text = result["text"] if isinstance(result, dict) else str(result)
-                rec = {"audio_id": w.stem, "text": text}
+                rec = {"audio_id": w.stem, "text": extract_text(result)}
             except Exception as exc:  # noqa: BLE001 — one bad clip must not kill the run
                 rec = {"audio_id": w.stem, "text": "", "error": repr(exc)}
                 print(f"  ERROR {w.stem}: {exc!r}")
