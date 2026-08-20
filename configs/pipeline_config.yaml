@@ -24,7 +24,7 @@ codec:
   metrics_sr: 16000           # resample BOTH sides here before any metric
 
 preprocess:                   # CPU only — num_proc must never touch the GPU
-  num_proc: 4
+  num_proc: 10
   map_batch_size: 64
   writer_batch_size: 200
 
@@ -34,6 +34,7 @@ encode:                       # GPU, main process, batched=True
                               # padding). Only exact-length groups may batch.
   bucket_by_length: exact     # not "loose" — quantised padding is NOT safe
   shard_rows: 2000            # token store parquet shard size
+  log_every: 100
 
 asr:                          # dominant cost (HLD §2.2)
   model_id: atlasia/moulsot.v0.3
