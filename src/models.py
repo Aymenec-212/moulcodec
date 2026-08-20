@@ -172,7 +172,7 @@ class NeuCodecWrapper:
         f_max = max(lengths)
         padded = torch.zeros(len(token_seqs), 1, f_max, dtype=torch.long)
         for i, t in enumerate(token_seqs):
-            padded[i, 0, : len(t)] = torch.as_tensor(t, dtype=torch.long)
+            padded[i, 0, : len(t)] = torch.tensor(t, dtype=torch.long)
 
         wav = self.model.decode_code(padded.to(self.device))     # [B,1,T] @ 24 kHz
         wav = wav.squeeze(1).float().cpu()

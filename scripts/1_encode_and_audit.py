@@ -23,9 +23,9 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
+import time
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import torch
 
@@ -86,18 +86,22 @@ def encode_all(ds, codec: NeuCodecWrapper, cfg: dict, store: Path, resume: bool)
     audio_ids = ds["id"]
     max_batch = int(cfg["encode"].get("batch_size", 1))
     shard_rows = int(cfg["encode"].get("shard_rows", 2000))
+    log_every = int(cfg["encode"].get("log_every", 100))
 
     shard_idx = next_shard_index(store)
     buffer: list[dict] = []
     n_done = 0
+    last_log = 0
+    n_todo = len(ds) - len(done)
+    t0 = time.time()
 
     for group in exact_length_groups(n_samples, max_batch=max_batch):
         group = [i for i in group if audio_ids[i] not in done]
         if not group:
             continue
 
-        rows_g = [ds[i] for i in group]
-        wavs = [torch.from_numpy(as_float32(np.asarray(r["wav"]))) for r in rows_g]
+        rows_g = [ds[i] for i in group]  # fetch each row ONCE, not twice
+        wavs = [torch.tensor(as_float32(r["wav"]), dtype=torch.float32) for r in rows_g]
         tokens = codec.encode_batch(wavs, strict=True)
 
         for row, tok in zip(rows_g, tokens):
@@ -118,11 +122,19 @@ def encode_all(ds, codec: NeuCodecWrapper, cfg: dict, store: Path, resume: bool)
             flush_shard(buffer, store, shard_idx)
             shard_idx += 1
             buffer = []
-        if n_done % 500 == 0:
-            print(f"  encoded {n_done} clips")
+
+        if n_done - last_log >= log_every:
+            rate = n_done / max(time.time() - t0, 1e-9)
+            eta_min = (n_todo - n_done) / rate / 60
+            print(f"  encoded {n_done}/{n_todo} | {rate:.1f} clips/s | ETA {eta_min:.0f} min")
+            last_log = n_done
 
     flush_shard(buffer, store, shard_idx)
-    print(f"encode complete: {n_done} new clips")
+    dt = time.time() - t0
+    if n_done:
+        print(f"encode complete: {n_done} clips in {dt / 60:.1f} min ({n_done / dt:.1f} clips/s)")
+    else:
+        print("encode complete: 0 new clips (all already in store)")
 
 
 def load_token_store(store: Path) -> pd.DataFrame:
@@ -155,7 +167,7 @@ def run_audit(df: pd.DataFrame, ds, codec: NeuCodecWrapper, cfg: dict, n_sample:
     )
     print(f"audit sample: {len(picks)} clips (nested prefix, seed={a.get('seed', 42)})")
 
-    wav_by_id = {aid: i for i, aid in enumerate(ds["id"])}   # single column only
+    wav_by_id = {aid: i for i, aid in enumerate(ds["id"])}
     speaker = None
     if a.get("speaker_similarity", True):
         from src.metrics import SpeakerSimilarity
@@ -166,7 +178,7 @@ def run_audit(df: pd.DataFrame, ds, codec: NeuCodecWrapper, cfg: dict, n_sample:
     for k, idx in enumerate(picks, 1):
         row = df.iloc[idx]
         aid = row["audio_id"]
-        ref = torch.from_numpy(as_float32(np.asarray(ds[wav_by_id[aid]]["wav"])))
+        ref = torch.tensor(as_float32(ds[wav_by_id[aid]]["wav"]), dtype=torch.float32)
         recon24 = codec.decode_one(row["tokens"])
 
         rec = {
