@@ -230,6 +230,21 @@ def run_release(df: pd.DataFrame, cfg: dict) -> None:
     release_dir = Path(cfg["paths"]["release_dir"])
     release_dir.mkdir(parents=True, exist_ok=True)
 
+        # Source has a small number of null transcripts (NaN). A row without text
+    # is not a (text, tokens) pair, so it is excluded from the release. Such
+    # rows remain in the token store, which is the raw artifact.
+    bad = df["text"].isna() | (df["text"].astype(str).str.strip() == "")
+    if bad.any():
+        dropped = df.loc[bad, "audio_id"].tolist()
+        write_json(
+            {"n_dropped": len(dropped), "reason": "null or empty transcript",
+             "audio_ids": dropped},
+            release_dir / "dropped_rows.json",
+        )
+        print(f"dropping {len(dropped)} rows with null transcripts "
+              f"({100 * len(dropped) / len(df):.2f}%) -> release/dropped_rows.json")
+        df = df.loc[~bad]
+
     rows = [
         {
             "audio_id": r["audio_id"],

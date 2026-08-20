@@ -61,6 +61,7 @@ def load_references(cfg: dict) -> dict[str, str]:
     df = pd.concat(
         [pd.read_parquet(s, columns=["audio_id", "text"]) for s in shards], ignore_index=True
     )
+    df = df[df["text"].notna() & (df["text"].astype(str).str.strip() != "")]
     return dict(zip(df["audio_id"], df["text"]))
 
 
