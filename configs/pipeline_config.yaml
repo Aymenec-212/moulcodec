@@ -69,5 +69,5 @@ paths:
   audit_dir: audit
 
 hub:
-  dataset_repo: atlasia/MoulSot-Tokens-v1
+  dataset_repo: Tilas/MoulSot-Tokens-v1
   private: true               # flip to public only after the §2.6 checklist passes
