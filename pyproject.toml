@@ -32,6 +32,11 @@ notebooks = [
     "scikit-learn>=1.4",
 ]
 
+figures = [
+    "scikit-learn>=1.4",
+    "matplotlib>=3.8",
+]
+
 [dependency-groups]
 dev = ["pytest>=8.0", "ruff>=0.6", "ipykernel>=6.29"]
 
