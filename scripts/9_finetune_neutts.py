@@ -147,7 +147,7 @@ def preflight(args, n_train: int) -> dict:
     facts["precision"] = "bf16" if use_bf16 else "fp16"
 
     # A Trainer checkpoint is weights (fp32) + AdamW m,v (fp32) ~= params x 12 bytes.
-    per_ckpt = 553e6 * 12 / 1024**3
+    per_ckpt = 748e6 * 12 / 1024**3  # untied: weights fp32 + AdamW m,v fp32
     need = per_ckpt * args.save_total_limit + 6  # + final model, hub cache, model cache
     args.out.mkdir(parents=True, exist_ok=True)
     free = shutil.disk_usage(args.out).free / 1024**3
@@ -400,6 +400,15 @@ def main() -> int:
     neuphonic = getattr(model.config, "neuphonic", None) or {}
     neuphonic.setdefault("input_format", "phonemes")
     model.config.neuphonic = neuphonic
+
+    # The base checkpoint declares tie_word_embeddings=True but stores BOTH tensors
+    # (verified identical). transformers 5.x sees both and declines to tie, so training
+    # is genuinely untied and the two matrices diverge. Saving with the flag still True
+    # would be a footgun: an older transformers would tie on load and silently discard
+    # the trained lm_head. Record what is actually true.
+    if not tied:
+        model.config.tie_word_embeddings = False
+
     # Incompatible with gradient checkpointing; warns loudly every step otherwise.
     model.config.use_cache = False
 
@@ -420,7 +429,8 @@ def main() -> int:
         learning_rate=args.lr,
         num_train_epochs=args.epochs,
         max_steps=args.max_steps,
-        warmup_ratio=args.warmup_ratio,
+        # warmup_ratio is deprecated in transformers 5.2; resolve it to steps here.
+        warmup_steps=max(1, int(facts['total_steps'] * args.warmup_ratio)),
         weight_decay=args.weight_decay,
         lr_scheduler_type="cosine",
         bf16=use_bf16,
