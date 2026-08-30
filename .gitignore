@@ -15,3 +15,8 @@ audit/
 *.arrow
 *.wav
 .hf_cache/
+
+# NeuTTS experiment artifacts
+preflight*.log
+preflight*.json
+prepare.logREADME.md
