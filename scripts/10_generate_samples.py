@@ -68,6 +68,42 @@ def build_prompt(tok, g2p, text, ref_text=None, ref_codes=None):
     return ids, base, phones
 
 
+def pick_device(requested: str | None, requested_dtype: str | None):
+    """CUDA > MPS > CPU.
+
+    NOT fp16. NeuTTS Air is Qwen2-architecture, and Qwen2 activations routinely exceed
+    fp16's 65504 ceiling -> inf logits -> nan probabilities -> multinomial raises. The
+    model was trained in fp32 under bf16 autocast, so bf16 (same exponent range as fp32)
+    is the faithful choice and half the memory of fp32.
+    """
+    if requested:
+        dev = requested
+    elif torch.cuda.is_available():
+        dev = "cuda"
+    elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+        dev = "mps"
+    else:
+        dev = "cpu"
+
+    if requested_dtype:
+        dtype = {"float32": torch.float32, "bfloat16": torch.bfloat16,
+                 "float16": torch.float16}[requested_dtype]
+    else:
+        dtype = torch.float32 if dev == "cpu" else torch.bfloat16
+    return dev, dtype
+
+
+def logits_are_finite(model, ids, device) -> bool:
+    """One forward pass to catch dtype range problems before generate() does."""
+    try:
+        with torch.no_grad():
+            out = model(torch.tensor([ids[:64]], dtype=torch.long, device=device))
+        return bool(torch.isfinite(out.logits).all().item())
+    except Exception as exc:  # noqa: BLE001
+        print(f"  probe forward failed ({type(exc).__name__}: {exc})")
+        return False
+
+
 def decode_to_wav(codec, codes, device):
     """neucodec.decode_code wants a LongTensor; be tolerant about the exact rank."""
     t = torch.tensor(codes, dtype=torch.long, device=device)
@@ -94,24 +130,53 @@ def main() -> int:
     ap.add_argument("--top-k", type=int, default=50)
     ap.add_argument("--top-p", type=float, default=0.95)
     ap.add_argument("--seed", type=int, default=1337)
+    ap.add_argument("--device", choices=["cuda", "mps", "cpu"], default=None,
+                    help="default: cuda > mps > cpu. Force cpu if MPS misbehaves.")
+    ap.add_argument("--dtype", choices=["float32", "bfloat16", "float16"], default=None,
+                    help="default: bf16 on gpu, fp32 on cpu. float16 WILL produce nan "
+                         "on this Qwen2-based model.")
     args = ap.parse_args()
 
     import soundfile as sf
     from neucodec import NeuCodec
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device, dtype = pick_device(args.device, args.dtype)
+    # NeuCodec decodes through a Vocos head that hits unimplemented Metal ops; it is
+    # fast enough on CPU, so only follow the model onto the GPU when that GPU is CUDA.
+    codec_device = device if device == "cuda" else "cpu"
+    print(f"device: {device} ({dtype}), codec on {codec_device}")
+    if device != "cuda":
+        print("  note: expect roughly 10-60 s per sample rather than 1-2 s")
     torch.manual_seed(args.seed)
     args.out.mkdir(parents=True, exist_ok=True)
 
     tok = AutoTokenizer.from_pretrained(args.model)
-    model = AutoModelForCausalLM.from_pretrained(args.model, dtype=torch.bfloat16).to(device)
+    model = AutoModelForCausalLM.from_pretrained(args.model, dtype=dtype).to(device)
     # Training set use_cache=False for gradient checkpointing and it persisted into the
     # saved config. Generation without a KV cache is quadratic - turn it back on.
     model.config.use_cache = True
     model.eval()
 
-    codec = NeuCodec.from_pretrained("neuphonic/neucodec").eval().to(device)
+    # Verify the dtype actually holds this model's activation range before generating.
+    probe = tok.encode("user: Convert the text to speech:", add_special_tokens=False)
+    if not logits_are_finite(model, probe, device):
+        print(f"  non-finite logits in {dtype}; reloading in float32")
+        del model
+        if device == "mps":
+            torch.mps.empty_cache()
+        dtype = torch.float32
+        model = AutoModelForCausalLM.from_pretrained(args.model, dtype=dtype).to(device)
+        model.config.use_cache = True
+        model.eval()
+        if not logits_are_finite(model, probe, device):
+            raise SystemExit(
+                f"Logits are non-finite even in float32 on {device}. Retry with "
+                "--device cpu, and if that also fails the checkpoint itself is suspect."
+            )
+    print(f"  logits finite in {dtype}")
+
+    codec = NeuCodec.from_pretrained("neuphonic/neucodec").eval().to(codec_device)
     g2p = DarijaPhonemizer()
 
     speech_end = tok.convert_tokens_to_ids("<|SPEECH_GENERATION_END|>")
@@ -160,7 +225,7 @@ def main() -> int:
             print(f"[{i}] {text}\n    only {len(codes)} codes generated - skipping")
             continue
 
-        wav = decode_to_wav(codec, codes, device)
+        wav = decode_to_wav(codec, codes, codec_device)
         path = args.out / f"{i:02d}_{'noref' if args.no_ref else 'ref'}.wav"
         sf.write(path, wav, 24000)
 
